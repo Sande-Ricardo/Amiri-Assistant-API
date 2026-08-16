@@ -1,0 +1,784 @@
+# =============================================================================
+# SOFTWARE REQUIREMENTS SPECIFICATION (SRS)
+# Automated B2B Commercial Proposal Generator - BACKEND
+# Source of truth for automated development (Antigravity IDE)
+# =============================================================================
+
+project_metadata:
+  name: "Amiri - Automated B2B Commercial Proposal Generator"
+  project_code: "GAPC-B2B"
+  version: "1.0.0"
+  description: >
+    Backend system that receives unstructured commercial requirements
+    (free text) from prospective clients and, through a multi-agent
+    architecture orchestrated with LangGraph, autonomously produces a
+    formal commercial proposal in Markdown format. The system runs a
+    sequential pipeline of three specialized agents (Analyst, Architect,
+    Writer) that extract requirements, infer a technical solution, and
+    compile a final document ready to be delivered to the client.
+  document_type: "Software Requirements Specification (SRS)"
+  audience: "Automated code generation engine (Antigravity IDE) and the engineering team"
+  scope:
+    includes:
+      - "Backend REST API (FastAPI)"
+      - "Multi-agent orchestration (LangGraph)"
+      - "Persistence in MySQL (Aiven Free Tier)"
+      - "Integration with a free LLM (Google Gemini 1.5 Flash / Groq Llama 3)"
+      - "Deployment specification on Render/Railway Free Tier"
+    excludes:
+      - "Frontend / user interface (Next.js or any other framework)"
+      - "End-user authentication via UI"
+      - "Billing or payment gateways"
+      - "Any client-side visual rendering logic"
+  document_author: "Principal Software Architect / AI Engineering Specialist"
+  creation_date: "2026-08-13"
+  status: "Approved for development"
+
+# =============================================================================
+# ARCHITECTURE
+# =============================================================================
+architecture:
+  architectural_style: "Hexagonal Architecture (Ports & Adapters) combined with a Directed Acyclic Graph (DAG) style agent orchestration"
+  design_patterns:
+    - name: "Sequential DAG (Directed Acyclic Graph)"
+      justification: >
+        The agent pipeline (Analyst -> Architect -> Writer) does not
+        require review cycles; each node consumes the state enriched by
+        the previous one and never returns to a prior node.
+    - name: "Repository Pattern"
+      justification: "Abstracts MySQL access through repositories (RequestRepository, ProposalRepository, AgentLogRepository) to decouple business logic from the ORM."
+    - name: "Dependency Injection"
+      justification: "FastAPI Depends() to inject database sessions, LLM clients, and orchestration services into the endpoints."
+    - name: "Asynchronous Task Processing (Fire-and-Forget with polling)"
+      justification: >
+        Since generating the proposal through 3 sequential LLM calls can
+        exceed a synchronous HTTP request timeout, execution happens in
+        the background via FastAPI BackgroundTasks, avoiding paid
+        infrastructure dependencies such as Redis/Celery.
+    - name: "State Pattern (LangGraph State)"
+      justification: "The shared state (TypedDict) acts as a mutable working memory that flows through the graph nodes."
+    - name: "Strategy Pattern for the LLM provider"
+      justification: "Abstraction over the LLM provider (Gemini or Groq) via a common interface, allowing the provider to be switched through an environment variable without modifying the agent nodes."
+    - name: "Fail-Fast with propagated error state"
+      justification: "On an unrecoverable failure in any node, the graph short-circuits execution via a conditional edge to END instead of continuing with incomplete data."
+  main_components:
+    - id: "api_layer"
+      name: "API Layer (FastAPI)"
+      responsibility: "Expose REST endpoints, validate payloads with Pydantic, delegate generation to the orchestration layer, and persist results."
+    - id: "orchestration_layer"
+      name: "Orchestration Layer (LangGraph)"
+      responsibility: "Execute the agent graph sequentially, manage the shared state, and handle errors per node."
+    - id: "agents_layer"
+      name: "Agents Layer"
+      responsibility: "Contain the logic, prompts, and validation schemas for the three agents: Analyst, Architect, and Writer."
+    - id: "persistence_layer"
+      name: "Persistence Layer (SQLAlchemy + MySQL)"
+      responsibility: "Store the request history, intermediate results, and final proposals in Aiven MySQL."
+    - id: "llm_provider_layer"
+      name: "LLM Provider Layer"
+      responsibility: "Encapsulate calls to Google Gemini 1.5 Flash or Groq Llama 3 via LangChain, including retries and free-tier rate-limit control."
+    - id: "background_worker"
+      name: "Background Executor"
+      responsibility: "Run the LangGraph pipeline asynchronously after responding 202 Accepted to the client."
+  general_flow_description: >
+    (1) The client sends a POST with the raw text of the requirement.
+    (2) The API creates a record in the 'requests' table with
+    status='pending', returns a request_id and 202 Accepted, and
+    launches the LangGraph execution as a background task.
+    (3) The graph runs sequentially: analyst_agent -> architect_agent ->
+    writer_agent, with no review cycles.
+    (4) Each node updates the shared state and persists a row in
+    agent_execution_logs.
+    (5) On success, the record in 'requests' is updated to
+    status='completed' and a row is inserted into 'proposals' with the
+    final markdown.
+    (6) The client polls GET /status/{id} until it receives
+    status='completed' or 'failed'.
+
+# =============================================================================
+# TECH STACK
+# =============================================================================
+tech_stack:
+  language:
+    name: "Python"
+    minimum_version: "3.11"
+  api_framework:
+    name: "FastAPI"
+    recommended_version: "^0.115.0"
+    asgi_server: "Uvicorn (standard worker, no multiple workers on Free Tier due to RAM limits)"
+  ai_framework:
+    name: "LangGraph"
+    recommended_version: "^0.2.0"
+    companion_library: "LangChain Core (^0.3.0) for message abstractions, prompts, and structured parsers"
+  llm_provider:
+    primary:
+      name: "Google Gemini 1.5 Flash"
+      sdk: "langchain-google-genai"
+      tier: "Free Tier (Google AI Studio)"
+      justification: "High inference speed and a generous free quota (RPM/RPD) suitable for prototyping and low volume."
+    alternative:
+      name: "Groq (Llama 3.1 8B Instant / Llama 3 70B)"
+      sdk: "langchain-groq"
+      tier: "Free Tier (Groq Cloud)"
+      justification: "Extremely low latency thanks to Groq's LPU; used as a fallback if Gemini hits its rate limit."
+    selection_strategy: "Configurable via the LLM_PROVIDER environment variable ('gemini' | 'groq'), resolved by a Factory in llm_provider_layer."
+  database:
+    engine: "MySQL 8.0"
+    hosting: "Aiven for MySQL (Free Tier)"
+    orm: "SQLAlchemy 2.x (declarative mode + Core for complex queries)"
+    driver: "PyMySQL"
+    migrations: "Alembic"
+    ssl: "Required (Aiven enforces SSL/TLS connections; CA certificate downloaded from the Aiven console)"
+  hosting:
+    recommended_platform: "Render (Free Tier - Web Service)"
+    alternative: "Railway (Free Tier)"
+    considerations: "Both platforms suspend the service after inactivity; the asynchronous design with polling mitigates timeouts during the 'cold start'."
+  data_validation:
+    library: "Pydantic v2"
+  configuration_management:
+    library: "pydantic-settings (typed environment variable loading)"
+  testing:
+    library: "pytest + pytest-asyncio + httpx (AsyncClient)"
+  structured_logging:
+    library: "Python standard logging with JSON format (or structlog), correlated by request_id"
+
+# =============================================================================
+# DATABASE SCHEMA
+# =============================================================================
+database_schema:
+  engine: "MySQL 8.0 (Aiven Free Tier)"
+  charset: "utf8mb4"
+  collation: "utf8mb4_unicode_ci"
+  tables:
+    - name: "requests"
+      description: "Records each proposal generation request and its lifecycle through the agent pipeline."
+      columns:
+        - name: "id"
+          type: "CHAR(36)"
+          constraints: "PRIMARY KEY"
+          description: "Application-generated UUID v4, used as the public identifier of the request (request_id)."
+        - name: "client_name"
+          type: "VARCHAR(255)"
+          constraints: "NULL"
+          description: "Name of the requesting client or company, optional."
+        - name: "raw_requirements"
+          type: "LONGTEXT"
+          constraints: "NOT NULL"
+          description: "Original unstructured text submitted by the user."
+        - name: "status"
+          type: "ENUM('pending','processing','completed','failed')"
+          constraints: "NOT NULL DEFAULT 'pending'"
+          description: "Current status of the request's lifecycle."
+        - name: "current_node"
+          type: "VARCHAR(50)"
+          constraints: "NULL"
+          description: "Name of the LangGraph node currently executing (analyst_agent, architect_agent, writer_agent), used for granular polling."
+        - name: "error_message"
+          type: "TEXT"
+          constraints: "NULL"
+          description: "Error detail when status='failed'."
+        - name: "llm_provider_used"
+          type: "VARCHAR(50)"
+          constraints: "NULL"
+          description: "LLM provider actually used (gemini | groq)."
+        - name: "created_at"
+          type: "DATETIME"
+          constraints: "NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        - name: "updated_at"
+          type: "DATETIME"
+          constraints: "NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+      indexes:
+        - "INDEX idx_requests_status (status)"
+        - "INDEX idx_requests_created_at (created_at)"
+
+    - name: "proposals"
+      description: "Stores the consolidated final result generated by the Writer Agent, in a 1:1 relationship with requests."
+      columns:
+        - name: "id"
+          type: "CHAR(36)"
+          constraints: "PRIMARY KEY"
+          description: "UUID v4 of the proposal."
+        - name: "request_id"
+          type: "CHAR(36)"
+          constraints: "NOT NULL, FOREIGN KEY REFERENCES requests(id) ON DELETE CASCADE"
+        - name: "clean_requirements_json"
+          type: "JSON"
+          constraints: "NULL"
+          description: "Structured requirements extracted by the Analyst Agent."
+        - name: "identified_ambiguities_json"
+          type: "JSON"
+          constraints: "NULL"
+          description: "List of ambiguities detected by the Analyst, each with its point and question."
+        - name: "resolved_assumptions_json"
+          type: "JSON"
+          constraints: "NULL"
+          description: "Explicit assumptions used by the Architect to resolve each ambiguity."
+        - name: "suggested_tech_stack_json"
+          type: "JSON"
+          constraints: "NULL"
+          description: "Tech stack proposed by the Architect Agent for the client's project."
+        - name: "proposed_modules_json"
+          type: "JSON"
+          constraints: "NULL"
+          description: "List of modules/deliverables with their individual hour estimates."
+        - name: "total_estimated_hours"
+          type: "INT"
+          constraints: "NULL"
+          description: "Total sum of estimated hours for the proposed project."
+        - name: "final_markdown"
+          type: "LONGTEXT"
+          constraints: "NULL"
+          description: "Final Markdown document compiled by the Writer Agent."
+        - name: "created_at"
+          type: "DATETIME"
+          constraints: "NOT NULL DEFAULT CURRENT_TIMESTAMP"
+      indexes:
+        - "UNIQUE INDEX uq_proposals_request_id (request_id)"
+
+    - name: "agent_execution_logs"
+      description: "Audit trail of every LangGraph node executed, used for observability and debugging."
+      columns:
+        - name: "id"
+          type: "BIGINT"
+          constraints: "PRIMARY KEY AUTO_INCREMENT"
+        - name: "request_id"
+          type: "CHAR(36)"
+          constraints: "NOT NULL, FOREIGN KEY REFERENCES requests(id) ON DELETE CASCADE"
+        - name: "node_name"
+          type: "VARCHAR(50)"
+          constraints: "NOT NULL"
+          description: "analyst_agent | architect_agent | writer_agent"
+        - name: "input_state_snapshot"
+          type: "JSON"
+          constraints: "NULL"
+        - name: "output_state_snapshot"
+          type: "JSON"
+          constraints: "NULL"
+        - name: "execution_time_ms"
+          type: "INT"
+          constraints: "NULL"
+        - name: "tokens_used_estimate"
+          type: "INT"
+          constraints: "NULL"
+        - name: "status"
+          type: "ENUM('success','error')"
+          constraints: "NOT NULL"
+        - name: "error_trace"
+          type: "TEXT"
+          constraints: "NULL"
+        - name: "created_at"
+          type: "DATETIME"
+          constraints: "NOT NULL DEFAULT CURRENT_TIMESTAMP"
+      indexes:
+        - "INDEX idx_logs_request_id (request_id)"
+        - "INDEX idx_logs_node_name (node_name)"
+
+# =============================================================================
+# LANGGRAPH DESIGN
+# =============================================================================
+langgraph_design:
+  framework: "LangGraph (StateGraph)"
+
+  state_schema:
+    type: "TypedDict (total=False for optional fields)"
+    class_name: "ProposalGenerationState"
+    fields:
+      - name: "request_id"
+        type: "str"
+        description: "Request UUID, used as the correlation key with the database."
+        required: true
+      - name: "client_name"
+        type: "Optional[str]"
+        description: "Client name, if provided in the original payload."
+        required: false
+      - name: "raw_requirements"
+        type: "str"
+        description: "Original unstructured text as received on the /generate endpoint. Never modified throughout the flow."
+        required: true
+      - name: "clean_requirements"
+        type: "List[str]"
+        description: "List of normalized and cleaned functional/non-functional requirements, produced by the Analyst Agent."
+        required: true
+        populated_by: "analyst_agent"
+      - name: "identified_ambiguities"
+        type: "List[Dict[str, str]]"
+        description: >
+          List of objects shaped as {'point': str, 'question': str}
+          representing gaps or contradictions detected in the original
+          requirement.
+        required: true
+        populated_by: "analyst_agent"
+      - name: "proposed_modules"
+        type: "List[Dict[str, Any]]"
+        description: >
+          List of proposed functional modules, each shaped as
+          {'name': str, 'description': str, 'estimated_hours': int}.
+        required: true
+        populated_by: "architect_agent"
+      - name: "suggested_tech_stack"
+        type: "Dict[str, str]"
+        description: >
+          Category->technology dictionary (e.g. {'backend': 'FastAPI',
+          'database': 'PostgreSQL'}) inferred when the client did not
+          specify concrete technologies.
+        required: true
+        populated_by: "architect_agent"
+      - name: "resolved_assumptions"
+        type: "List[str]"
+        description: "Explicit assumptions made by the Architect Agent to resolve each ambiguity, without stopping the flow."
+        required: true
+        populated_by: "architect_agent"
+      - name: "total_estimated_hours"
+        type: "int"
+        description: "Sum, recalculated in code, of estimated_hours across all proposed_modules."
+        required: true
+        populated_by: "architect_agent"
+      - name: "final_markdown_proposal"
+        type: "str"
+        description: "Final Markdown document, ready to be delivered to the client."
+        required: true
+        populated_by: "writer_agent"
+      - name: "current_stage"
+        type: "str"
+        description: "Name of the node currently executing; persisted in requests.current_node to support granular polling."
+        required: true
+      - name: "error_log"
+        type: "Optional[str]"
+        description: "Error message if any node fails unrecoverably; its presence triggers the conditional edge to END with status='failed'."
+        required: false
+      - name: "retries_count"
+        type: "int"
+        description: "Counter of accumulated LLM retries in the current node, reset upon entering each node."
+        required: true
+        initial_value: 0
+
+  nodes:
+    - id: "analyst_agent"
+      display_name: "Analyst Agent"
+      order: 1
+      role: >
+        Structurally extract the explicit and implicit functional and
+        non-functional requirements contained in the client's raw text,
+        and exhaustively detect every ambiguity, information gap, or
+        contradiction that could impact the design of the solution.
+      llm_model: "Configured via LLM_PROVIDER (temperature=0.2 for maximum extraction consistency)"
+      system_prompt: |
+        You are a senior Requirements Analyst specialized in B2B
+        software projects. Your task is to read the client's raw
+        requirement and transform it into structured information.
+
+        Instructions:
+        1. Extract a list of clear, atomic functional and non-functional
+           requirements from the client's text.
+        2. Explicitly identify every ambiguity, information gap, or
+           contradiction (e.g., unspecified user volume, unclarified
+           integrations, unmentioned deadlines).
+        3. Do NOT propose technical solutions or technologies at this
+           step; that responsibility belongs to the Architect Agent.
+        4. Respond EXCLUSIVELY in valid JSON, strictly following this
+           schema:
+           {
+             "clean_requirements": ["string", "..."],
+             "identified_ambiguities": [
+               {"point": "string", "question": "string"}
+             ]
+           }
+        5. Do not include any explanatory text outside the JSON.
+      input_state_keys:
+        - "raw_requirements"
+        - "client_name"
+      output_state_keys:
+        - "clean_requirements"
+        - "identified_ambiguities"
+        - "current_stage"
+      additional_logic: >
+        Before invoking the LLM, raw_requirements is sanitized (trim,
+        configurable length limit, removal of possible instruction
+        override patterns such as "ignore previous instructions"). The
+        LLM response is parsed and validated against the
+        AnalystOutputSchema Pydantic model; if validation fails, it is
+        retried once with a correction prompt that includes the parsing
+        error detected.
+      persistence: "On completion, a row is inserted into agent_execution_logs with node_name='analyst_agent'."
+
+    - id: "architect_agent"
+      display_name: "Architect Agent"
+      order: 2
+      role: >
+        Design the technical solution at a high level: define the
+        functional modules of the proposed system, estimate development
+        hours per module, suggest a reasonable tech stack when the
+        client did not specify one, and resolve each ambiguity detected
+        by the Analyst Agent through an explicit, justified assumption,
+        without halting the pipeline.
+      llm_model: "Configured via LLM_PROVIDER (temperature=0.4 for a balance between technical creativity and consistency)"
+      system_prompt: |
+        You are a senior Solutions Architect. You receive a list of
+        clean requirements and a list of ambiguities detected by the
+        Analyst.
+
+        Instructions:
+        1. For each ambiguity received, define a reasonable assumption
+           and document it explicitly; never leave an ambiguity
+           unresolved or hand it back to a human.
+        2. Break down the solution into concrete functional modules
+           (e.g., "Authentication Module", "Reporting Module").
+        3. For each module, estimate development hours realistically,
+           considering the typical complexity of similar B2B projects.
+        4. If the client did not specify technologies, suggest a
+           modern, widely adopted stack coherent with the requirements
+           (backend, database, hosting, etc).
+        5. Respond EXCLUSIVELY in valid JSON, strictly following this
+           schema:
+           {
+             "proposed_modules": [
+               {"name": "string", "description": "string", "estimated_hours": number}
+             ],
+             "suggested_tech_stack": {"category": "technology"},
+             "resolved_assumptions": ["string", "..."],
+             "total_estimated_hours": number
+           }
+        6. Do not include any explanatory text outside the JSON.
+      input_state_keys:
+        - "clean_requirements"
+        - "identified_ambiguities"
+      output_state_keys:
+        - "proposed_modules"
+        - "suggested_tech_stack"
+        - "resolved_assumptions"
+        - "total_estimated_hours"
+        - "current_stage"
+      additional_logic: >
+        total_estimated_hours is recalculated and validated in code (not
+        solely trusted from the LLM's returned value), by summing
+        estimated_hours across all proposed_modules, to guarantee
+        numeric consistency.
+      persistence: "On completion, a row is inserted into agent_execution_logs with node_name='architect_agent'."
+
+    - id: "writer_agent"
+      display_name: "Writer Agent"
+      order: 3
+      role: >
+        Compile all information generated by the previous agents into a
+        final commercial proposal document — formal, persuasive, and
+        well-structured — in Markdown format, ready to be delivered
+        directly to the client.
+      llm_model: "Configured via LLM_PROVIDER (temperature=0.6 for greater narrative fluency and commercial tone)"
+      system_prompt: |
+        You are a senior Commercial Proposal Writer specialized in the
+        B2B software development industry. You receive all the
+        structured data generated by the Analyst and the Architect.
+
+        Instructions:
+        1. Write a complete commercial proposal in Markdown with the
+           following mandatory sections, in this order:
+           "# Commercial Proposal", "## Executive Summary",
+           "## Understanding of the Requirement", "## Proposed Solution"
+           (with subsections per module), "## Suggested Tech Stack",
+           "## Hour Estimate and Timeline", "## Assumptions and
+           Clarifications", "## Next Steps".
+        2. Use a professional, clear tone oriented toward building
+           client trust.
+        3. The "Assumptions and Clarifications" section must explicitly
+           list every assumption received, formally documenting the
+           decisions made to address the client's incomplete original
+           information.
+        4. Do not invent data not present in the received state (client
+           name, modules, hours, stack).
+        5. Respond EXCLUSIVELY with the final Markdown content, with no
+           JSON, no additional comments, and no code block delimiters.
+      input_state_keys:
+        - "client_name"
+        - "clean_requirements"
+        - "proposed_modules"
+        - "suggested_tech_stack"
+        - "resolved_assumptions"
+        - "total_estimated_hours"
+      output_state_keys:
+        - "final_markdown_proposal"
+        - "current_stage"
+      additional_logic: >
+        The output is stored as-is in proposals.final_markdown; no
+        post-processing is applied beyond trim() and verifying the
+        document is not empty.
+      persistence: >
+        On successful completion, the final row is inserted into the
+        'proposals' table and requests.status is updated to
+        'completed'. A row is also inserted into agent_execution_logs
+        with node_name='writer_agent'.
+
+  edges:
+    type: "Strictly sequential DAG, with no review cycles"
+    entry_point: "analyst_agent"
+    definition:
+      - source: "START"
+        target: "analyst_agent"
+        type: "unconditional"
+      - source: "analyst_agent"
+        target: "architect_agent"
+        type: "conditional"
+        condition: "If state.error_log is None, continue to architect_agent; otherwise, go to END."
+      - source: "architect_agent"
+        target: "writer_agent"
+        type: "conditional"
+        condition: "If state.error_log is None, continue to writer_agent; otherwise, go to END."
+      - source: "writer_agent"
+        target: "END"
+        type: "unconditional"
+    checkpointer:
+      usage: "Not required for v1.0.0 (single-shot execution with no need to persist intermediate LangGraph checkpoints); progress is reflected directly in the 'requests' table via current_node."
+      note: "LangGraph's MemorySaver may be added in a future phase if resuming interrupted executions is required."
+
+# =============================================================================
+# API ENDPOINTS
+# =============================================================================
+api_endpoints:
+  base_path: "/api/v1"
+  endpoints:
+    - path: "/api/v1/proposals/generate"
+      method: "POST"
+      description: >
+        Receives the client's unstructured requirement text, creates a
+        request record with status 'pending', and triggers the
+        asynchronous execution of the LangGraph agent graph in the
+        background via BackgroundTasks. Responds immediately without
+        waiting for the pipeline to finish.
+      request_payload:
+        content_type: "application/json"
+        schema:
+          raw_requirements:
+            type: "string"
+            required: true
+            min_length: 20
+            description: "Free text with the client's requirements."
+          client_name:
+            type: "string"
+            required: false
+            description: "Client or company name, optional."
+        example:
+          raw_requirements: "We need a system to manage our online store's inventory, with monthly reports and notifications when stock is low."
+          client_name: "Comercial Andina S.A."
+      response_schema:
+        success_code: 202
+        description: "Accepted - the request was accepted and queued for asynchronous processing."
+        body:
+          request_id:
+            type: "string (uuid)"
+          status:
+            type: "string"
+            value: "pending"
+          status_check_url:
+            type: "string"
+            description: "Relative URL to poll for status, e.g. /api/v1/proposals/{request_id}/status"
+          created_at:
+            type: "string (ISO 8601)"
+        error_codes:
+          - code: 422
+            description: "Invalid payload (Pydantic validation failed, e.g. raw_requirements empty or too short)."
+          - code: 500
+            description: "Internal error while creating the record in the database."
+
+    - path: "/api/v1/proposals/{request_id}/status"
+      method: "GET"
+      description: >
+        Allows polling the current status of a request. If the status
+        is 'completed', the response includes the final proposal in
+        Markdown and the metadata generated by each agent. A polling
+        interval of 3 to 5 seconds from the consuming client is
+        recommended.
+      path_params:
+        request_id:
+          type: "string (uuid)"
+          required: true
+      response_schema:
+        success_code: 200
+        body:
+          request_id:
+            type: "string (uuid)"
+          status:
+            type: "string"
+            possible_values: ["pending", "processing", "completed", "failed"]
+          current_node:
+            type: "string | null"
+            description: "Current executing node, useful for showing granular progress (e.g. 'architect_agent')."
+          proposal:
+            type: "object | null"
+            description: "Only present when status='completed'."
+            fields:
+              final_markdown:
+                type: "string"
+              total_estimated_hours:
+                type: "integer"
+              suggested_tech_stack:
+                type: "object"
+              identified_ambiguities:
+                type: "array"
+              resolved_assumptions:
+                type: "array"
+          error_message:
+            type: "string | null"
+            description: "Present only when status='failed'."
+          created_at:
+            type: "string (ISO 8601)"
+          updated_at:
+            type: "string (ISO 8601)"
+        error_codes:
+          - code: 404
+            description: "No request exists with the provided request_id."
+      real_time_update_mechanism:
+        primary_strategy: "Polling"
+        future_alternative_strategy: "Server-Sent Events (SSE) at endpoint /api/v1/proposals/{request_id}/stream - out of scope for v1.0.0"
+
+    - path: "/health"
+      method: "GET"
+      description: "Service health-check endpoint, used by Render/Railway for automated health checks."
+      response_schema:
+        success_code: 200
+        body:
+          status:
+            type: "string"
+            value: "ok"
+          database:
+            type: "string"
+            possible_values: ["connected", "disconnected"]
+
+# =============================================================================
+# DEPLOYMENT SPECIFICATIONS
+# =============================================================================
+deployment_specifications:
+  supported_platforms:
+    - "Render (Free Tier - Web Service)"
+    - "Railway (Free Tier)"
+  environment_variables:
+    - name: "DATABASE_URL"
+      required: true
+      description: "Full connection string to Aiven MySQL. Format: mysql+pymysql://user:password@host:port/db_name"
+      example: "mysql+pymysql://avnadmin:xxxxx@mysql-xxxx.aivencloud.com:12345/defaultdb"
+    - name: "DB_SSL_CA_PATH"
+      required: true
+      description: "Path to the CA certificate downloaded from the Aiven console, required for the mandatory SSL connection."
+    - name: "LLM_PROVIDER"
+      required: true
+      description: "Selector for the active LLM provider. Valid values: 'gemini' | 'groq'."
+      default_value: "gemini"
+    - name: "GOOGLE_API_KEY"
+      required: false
+      description: "Google AI Studio API Key, required if LLM_PROVIDER=gemini."
+    - name: "GROQ_API_KEY"
+      required: false
+      description: "Groq Cloud API Key, required if LLM_PROVIDER=groq."
+    - name: "GEMINI_MODEL_NAME"
+      required: false
+      default_value: "gemini-1.5-flash"
+    - name: "GROQ_MODEL_NAME"
+      required: false
+      default_value: "llama-3.1-8b-instant"
+    - name: "PORT"
+      required: true
+      description: "Port automatically injected by Render/Railway; Uvicorn must bind to 0.0.0.0:$PORT."
+    - name: "ENVIRONMENT"
+      required: false
+      default_value: "production"
+    - name: "LOG_LEVEL"
+      required: false
+      default_value: "INFO"
+    - name: "CORS_ALLOWED_ORIGINS"
+      required: true
+      description: "Comma-separated list of allowed origins (frontend domain, managed outside this scope)."
+    - name: "MAX_LLM_RETRIES"
+      required: false
+      default_value: "2"
+      description: "Number of retries on LLM provider error or rate-limit before marking the request as 'failed'."
+    - name: "REQUEST_TIMEOUT_SECONDS"
+      required: false
+      default_value: "120"
+      description: "Maximum timeout for the full 3-agent pipeline execution."
+  commands:
+    build_command: "pip install -r requirements.txt"
+    start_command: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    migrations: "alembic upgrade head  # run as a release step before service startup"
+  key_requirements_txt_dependencies:
+    - "fastapi>=0.115.0"
+    - "uvicorn[standard]>=0.30.0"
+    - "langgraph>=0.2.0"
+    - "langchain-core>=0.3.0"
+    - "langchain-google-genai>=2.0.0"
+    - "langchain-groq>=0.2.0"
+    - "sqlalchemy>=2.0.0"
+    - "pymysql>=1.1.0"
+    - "alembic>=1.13.0"
+    - "pydantic>=2.8.0"
+    - "pydantic-settings>=2.4.0"
+    - "python-dotenv>=1.0.0"
+    - "cryptography>=42.0.0"
+  free_tier_considerations:
+    - "Render/Railway Free Tier suspend the service after inactivity ('cold start' of up to 30-50s on the next request); the asynchronous design with polling prevents this cold start from causing a client-side timeout."
+    - "Aiven Free Tier for MySQL has a storage limit (approx. 1GB) and a limit on concurrent connections; a reduced connection pool (pool_size=5) in SQLAlchemy is recommended."
+    - "Gemini/Groq free rate limits (requests per minute) must be handled with exponential backoff in llm_provider_layer."
+    - "Celery + Redis is not recommended since both would require additional paid infrastructure; FastAPI's BackgroundTasks is sufficient for the expected volume at this stage."
+  health_check:
+    endpoint: "/health"
+    description: "Verifies MySQL connectivity and returns 200 OK; used by Render/Railway for automated health checks."
+
+# =============================================================================
+# NON-FUNCTIONAL REQUIREMENTS
+# =============================================================================
+non_functional_requirements:
+  performance:
+    - "The full pipeline (3 agents) must complete in under 90 seconds at the 95th percentile, given the latency of Gemini 1.5 Flash / Groq."
+  scalability:
+    - "Stateless design at the API layer; progress state lives in MySQL, allowing the web service to scale horizontally without losing consistency."
+  availability:
+    - "No formal SLA is guaranteed given the use of Free Tier infrastructure; this is documented as a known project limitation."
+  observability:
+    - "Structured JSON logging with request_id as the correlation field across all logs related to a request."
+    - "The agent_execution_logs table enables full traceability of every node executed."
+  maintainability:
+    - "Strict layer separation (api, orchestration, agents, persistence, llm_provider) to ease automated code generation and isolated unit testing."
+
+# =============================================================================
+# ERROR HANDLING AND RESILIENCE
+# =============================================================================
+error_handling_and_resilience:
+  general_strategy: >
+    Every LangGraph node is wrapped in a try/except block that catches
+    LLM provider exceptions (rate limit, timeout, malformed response)
+    and JSON parsing errors. On an unrecoverable failure after
+    MAX_LLM_RETRIES attempts, the node writes error_log into the state,
+    the graph terminates early via the conditional edge to END, and the
+    record in 'requests' is updated to status='failed' with the error
+    detail.
+  llm_output_validation:
+    - "Every agent requires the LLM to respond in strict JSON format (structured output / function calling from LangChain when supported by the provider)."
+    - "The response is validated against a node-specific Pydantic model before being written to the state; if validation fails, it is retried once with a correction prompt."
+  ambiguity_handling: >
+    Per the project's design constraint, the graph is strictly
+    sequential and does not include human review cycles. Therefore,
+    ambiguities detected by the Analyst Agent do NOT halt the pipeline:
+    they are documented in the state and resolved by the Architect
+    Agent through explicit reasonable assumptions, which are listed in
+    the final proposal under the "Assumptions and Clarifications"
+    section.
+
+# =============================================================================
+# SECURITY CONSIDERATIONS
+# =============================================================================
+security_considerations:
+  - "LLM API keys and database credentials are managed exclusively via environment variables, never hardcoded or committed to version control."
+  - "Connection to Aiven MySQL is enforced over SSL/TLS (ssl_ca configured on the SQLAlchemy engine)."
+  - "The raw_requirements input is sanitized to prevent basic prompt injection (length limit, detection/neutralization of instruction-override patterns before interpolation into the system prompt)."
+  - "CORS is explicitly restricted to the origins defined in CORS_ALLOWED_ORIGINS."
+  - "API-level rate limiting (e.g. slowapi) is recommended for the POST /generate endpoint, given the computational cost of each LLM-backed request."
+
+# =============================================================================
+# TESTING STRATEGY
+# =============================================================================
+testing_strategy:
+  unit_tests:
+    - "Unit tests per graph node (analyst_agent, architect_agent, writer_agent) mocking the LLM client response."
+    - "Unit tests for the persistence repositories using a test MySQL database (e.g. testcontainers)."
+  integration_tests:
+    - "End-to-end integration test of the full LangGraph graph, verifying the structure of the final state."
+    - "Integration tests for the FastAPI endpoints using httpx.AsyncClient against a test database."
+  contract_tests:
+    - "Validation that each LLM node's response satisfies the expected Pydantic schema, using fixtures of captured real responses."

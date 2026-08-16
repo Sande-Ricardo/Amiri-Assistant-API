@@ -1,8 +1,8 @@
 # Project State
 
 ## Sprint Tasks
-- [ ] Initialize repository and configure linters.
-- [ ] Initialize FastAPI base architecture & directories structure.
+- [x] Initialize repository and configure linters.
+- [x] Initialize FastAPI base architecture & directories structure.
 
 ## Blockers
 - None.

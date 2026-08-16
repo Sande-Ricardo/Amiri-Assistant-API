@@ -1,4 +1,13 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
 
-# Agent 
-# /references
-# /.agents
+# Environment variables
+.env
+
+# Agent
+/references
+/.agents

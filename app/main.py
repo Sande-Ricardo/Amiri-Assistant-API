@@ -4,12 +4,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.endpoints.health import router as health_router
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.openapi import custom_openapi_generator
 
 app = FastAPI(
-    title="Amiri - Automated B2B Commercial Proposal Generator API",
+    title="Amiri B2B Proposal Generator API",
     version="1.0.0",
-    description="Backend REST API for multi-agent commercial proposal generation.",
+    docs_url=settings.DOCS_URL,
+    redoc_url=settings.REDOC_URL,
+    openapi_url=settings.OPENAPI_URL,
 )
+
+# Custom OpenAPI schema generator override
+app.openapi = lambda: custom_openapi_generator(app)
 
 # Configure CORS
 origins = [origin.strip() for origin in settings.CORS_ALLOWED_ORIGINS.split(",")]

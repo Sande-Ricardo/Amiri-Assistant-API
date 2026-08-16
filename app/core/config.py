@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     CORS_ALLOWED_ORIGINS: str = "*"
 
+    # OpenAPI Documentation Settings
+    DOCS_URL: str | None = "/docs"
+    REDOC_URL: str | None = "/redoc"
+    OPENAPI_URL: str | None = "/openapi.json"
+
+
     # Database Settings
     DATABASE_URL: str = "mysql+pymysql://user:password@localhost:3306/amiri"
     DB_SSL_CA_PATH: str | None = None

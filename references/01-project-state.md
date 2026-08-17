@@ -4,7 +4,7 @@
 - [x] Initialize repository and configure linters (Ruff, Mypy).
 - [x] Initialize FastAPI base architecture & directories structure.
 - [x] Configure automated documentation via OpenAPI.
-- [ ] Configure Database Connection (Aiven MySQL + SSL) and SQLAlchemy Engine.
+- [x] Configure Database Connection (Aiven MySQL + SSL) and SQLAlchemy Engine.
 - [ ] Set up Alembic and create initial migration scripts.
 
 ## Sprint 2: Persistence Layer

@@ -5,7 +5,7 @@
 - [x] Initialize FastAPI base architecture & directories structure.
 - [x] Configure automated documentation via OpenAPI.
 - [x] Configure Database Connection (Aiven MySQL + SSL) and SQLAlchemy Engine.
-- [ ] Set up Alembic and create initial migration scripts.
+- [x] Set up Alembic and create initial migration scripts.
 
 ## Sprint 2: Persistence Layer
 - [ ] Create SQLAlchemy Models (`requests`, `proposals`, `agent_execution_logs`).

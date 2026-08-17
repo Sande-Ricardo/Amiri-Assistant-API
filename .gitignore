@@ -9,5 +9,5 @@ __pycache__/
 .env
 
 # Agent
-/references/*
-/.agents/*
+# /references/*
+# /.agents/*

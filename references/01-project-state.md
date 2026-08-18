@@ -8,7 +8,7 @@
 - [x] Set up Alembic and create initial migration scripts.
 
 ## Sprint 2: Persistence Layer
-- [ ] Create SQLAlchemy Models (`requests`, `proposals`, `agent_execution_logs`).
+- [x] Create SQLAlchemy Models (`requests`, `proposals`, `agent_execution_logs`).
 - [ ] Implement `ProposalRepository` port adapter (MySQL).
 - [ ] Implement `AgentLogRepository` port adapter (MySQL).
 

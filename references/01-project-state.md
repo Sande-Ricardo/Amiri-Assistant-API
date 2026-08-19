@@ -9,8 +9,8 @@
 
 ## Sprint 2: Persistence Layer
 - [x] Create SQLAlchemy Models (`requests`, `proposals`, `agent_execution_logs`).
-- [ ] Implement `ProposalRepository` port adapter (MySQL).
-- [ ] Implement `AgentLogRepository` port adapter (MySQL).
+- [x] Implement `ProposalRepository` port adapter (MySQL).
+- [x] Implement `AgentLogRepository` port adapter (MySQL).
 
 ## Sprint 3: LLM Provider & Agent Prompts Layer
 - [ ] Implement LLM Provider Strategy (Gemini / Groq selection via Factory).

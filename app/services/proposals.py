@@ -1,5 +1,5 @@
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks
 
@@ -17,7 +17,11 @@ class ProposalService:
         client_name: str | None,
         background_tasks: BackgroundTasks,
     ) -> UUID:
-        request_id = await self.repository.create_request(
+        # UUID v4 generated at the application layer, following hexagonal architecture
+        request_id = uuid4()
+
+        self.repository.create_request(
+            request_id=request_id,
             raw_requirements=raw_requirements,
             client_name=client_name,
         )
@@ -32,4 +36,4 @@ class ProposalService:
         return request_id
 
     async def check_status(self, request_id: UUID) -> dict[str, Any] | None:
-        return await self.repository.get_request_status(request_id)
+        return self.repository.get_request_by_id(request_id)

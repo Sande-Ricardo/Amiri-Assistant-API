@@ -15,7 +15,7 @@
 ## Sprint 3: LLM Provider & Agent Prompts Layer
 - [x] Implement LLM Provider Strategy (Gemini / Groq selection via Factory).
 - [x] Define LLM Input/Output Pydantic Schemas (AnalystOutputSchema, ArchitectOutputSchema).
-- [ ] Develop Analyst Agent logic & prompts (Requirement extraction & ambiguity detection).
+- [x] Develop Analyst Agent logic & prompts (Requirement extraction & ambiguity detection).
 - [ ] Develop Architect Agent logic & prompts (Module definition, hour estimation, assumption resolution).
 - [ ] Develop Writer Agent logic & prompts (Markdown compilation).
 

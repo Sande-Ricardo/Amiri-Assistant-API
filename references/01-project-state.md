@@ -17,7 +17,7 @@
 - [x] Define LLM Input/Output Pydantic Schemas (AnalystOutputSchema, ArchitectOutputSchema).
 - [x] Develop Analyst Agent logic & prompts (Requirement extraction & ambiguity detection).
 - [x] Develop Architect Agent logic & prompts (Module definition, hour estimation, assumption resolution).
-- [ ] Develop Writer Agent logic & prompts (Markdown compilation).
+- [x] Develop Writer Agent logic & prompts (Markdown compilation).
 
 ## Sprint 4: LangGraph Orchestration & API Integration
 - [ ] Define LangGraph `ProposalGenerationState` (TypedDict).

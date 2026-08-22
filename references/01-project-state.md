@@ -20,7 +20,7 @@
 - [x] Develop Writer Agent logic & prompts (Markdown compilation).
 
 ## Sprint 4: LangGraph Orchestration & API Integration
-- [ ] Define LangGraph `ProposalGenerationState` (TypedDict).
+- [x] Define LangGraph `ProposalGenerationState` (TypedDict).
 - [ ] Implement LangGraph nodes and conditional edges (DAG pipeline).
 - [ ] Integrate LangGraph execution with FastAPI `BackgroundTasks`.
 - [ ] Connect `POST /api/v1/proposals/generate` to trigger the pipeline.

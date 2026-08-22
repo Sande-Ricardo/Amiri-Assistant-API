@@ -21,7 +21,7 @@
 
 ## Sprint 4: LangGraph Orchestration & API Integration
 - [x] Define LangGraph `ProposalGenerationState` (TypedDict).
-- [ ] Implement LangGraph nodes and conditional edges (DAG pipeline).
+- [x] Implement LangGraph nodes and conditional edges (DAG pipeline).
 - [ ] Integrate LangGraph execution with FastAPI `BackgroundTasks`.
 - [ ] Connect `POST /api/v1/proposals/generate` to trigger the pipeline.
 - [ ] Connect `GET /api/v1/proposals/{id}/status` to fetch real-time state and final markdown.
